@@ -1,0 +1,42 @@
+# Dependency directories
+**/node_modules/
+**/venv/
+**/.venv/
+**/__pycache__/
+*.pyc
+
+# Local configuration and databases
+**/database.json
+.env
+.env.production
+*.local
+
+# Executables & Binaries
+bin/
+
+# Temporary media and user files
+downloads/
+Music/
+*.webm
+*.mp3
+*.m4a
+*.wav
+*.ogg
+
+# Build output
+dist/
+dist-ssr/
+
+# Logs
+*.log
+logs/
+
+# OS/Editor configs
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.suo
+*.ntvs*
+*.njsproj
+*.sln

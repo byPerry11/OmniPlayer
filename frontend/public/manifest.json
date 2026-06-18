@@ -1,0 +1,17 @@
+{
+  "name": "Omniplayer - Spotify Omnitrix Edition",
+  "short_name": "Omniplayer",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#030603",
+  "theme_color": "#00ff66",
+  "description": "Un reproductor clon de Spotify con estética de Ben 10 Omnitrix, descargas de YouTube integradas y temas intercambiables.",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

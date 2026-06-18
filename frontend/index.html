@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#030603" />
+    <title>Omniplayer - Spotify Omnitrix Edition</title>
+    <!-- Link PWA manifest -->
+    <link rel="manifest" href="/manifest.json" />
+    <!-- Google Fonts for premium scifi aesthetics -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    
+    <!-- Register service worker -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+          // Unregister service workers and clear caches during development to prevent HMR and stale cache bugs
+          navigator.serviceWorker.getRegistrations().then(registrations => {
+            let unregisteredAny = false;
+            for (let registration of registrations) {
+              registration.unregister();
+              unregisteredAny = true;
+            }
+            if (unregisteredAny) {
+              console.log('Service Worker desregistrado para desarrollo. Limpiando caché...');
+              if ('caches' in window) {
+                caches.keys().then(keys => {
+                  Promise.all(keys.map(key => caches.delete(key))).then(() => {
+                    console.log('Caché limpiada. Recargando página...');
+                    window.location.reload();
+                  });
+                });
+              } else {
+                window.location.reload();
+              }
+            }
+          });
+          // Also clear caches immediately just in case
+          if ('caches' in window) {
+            caches.keys().then(keys => {
+              keys.forEach(key => caches.delete(key));
+            });
+          }
+        } else {
+          window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js')
+              .then(reg => console.log('Service Worker registrado con éxito:', reg.scope))
+              .catch(err => console.error('Fallo al registrar Service Worker:', err));
+          });
+        }
+      }
+    </script>
+  </body>
+</html>
