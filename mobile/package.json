@@ -3,24 +3,24 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
-    "@react-native-async-storage/async-storage": "^3.1.1",
-    "expo": "~56.0.12",
-    "expo-av": "^16.0.8",
-    "expo-file-system": "^56.0.8",
-    "expo-status-bar": "~56.0.4",
+    "@react-native-async-storage/async-storage": "1.23.1",
+    "expo": "~51.0.38",
+    "expo-av": "~14.0.7",
+    "expo-file-system": "~17.0.1",
+    "expo-status-bar": "~1.12.1",
     "lucide-react-native": "^1.21.0",
-    "react": "19.2.3",
-    "react-native": "0.85.3"
+    "react": "18.2.0",
+    "react-native": "0.74.5"
   },
   "devDependencies": {
-    "@types/react": "~19.2.2",
-    "typescript": "~6.0.3"
+    "@types/react": "~18.2.79",
+    "typescript": "~5.3.3"
   },
   "scripts": {
-    "start": "NODE_OPTIONS=\"--require ../polyfill.js\" expo start",
-    "android": "NODE_OPTIONS=\"--require ../polyfill.js\" expo start --android",
-    "ios": "NODE_OPTIONS=\"--require ../polyfill.js\" expo start --ios",
-    "web": "NODE_OPTIONS=\"--require ../polyfill.js\" expo start --web"
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
   },
   "private": true
 }
