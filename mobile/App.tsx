@@ -38,13 +38,14 @@ import {
   Settings, 
   RefreshCw, 
   Shuffle, 
-  Repeat 
+  Repeat,
+  Home
 } from 'lucide-react-native';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 type ThemeMode = 'green' | 'red' | 'blue' | 'gold';
-type TabMode = 'library' | 'search' | 'playlists' | 'ssh_settings';
+type TabMode = 'home' | 'library' | 'search' | 'settings';
 
 interface Song {
   id: string;
@@ -72,57 +73,62 @@ interface Playlist {
 const THEMES = {
   green: {
     primary: '#00ff66',
-    primaryGlow: 'rgba(0, 255, 102, 0.4)',
+    primaryGlow: 'rgba(0, 255, 102, 0.35)',
     dim: '#05b84c',
-    dark: '#093016',
-    background: '#030603',
-    panel: 'rgba(8, 14, 8, 0.9)',
-    border: 'rgba(0, 255, 102, 0.25)',
-    borderActive: 'rgba(0, 255, 102, 0.65)',
-    text: '#f5fff5',
-    gray: '#8fa693'
+    dark: '#0a1d0f',
+    background: '#080d09', // Deep dark green charcoal
+    panel: 'rgba(255, 255, 255, 0.06)', // Glassmorphic translucid panel
+    border: 'rgba(255, 255, 255, 0.12)', // Subtle white glass border
+    borderActive: 'rgba(0, 255, 102, 0.5)',
+    text: '#ffffff', // Clean white
+    gray: '#b0b8b2'  // Neutral silver-grey
   },
   red: {
     primary: '#ff003c',
-    primaryGlow: 'rgba(255, 0, 60, 0.4)',
+    primaryGlow: 'rgba(255, 0, 60, 0.35)',
     dim: '#c2002d',
-    dark: '#3d020d',
-    background: '#060303',
-    panel: 'rgba(14, 8, 8, 0.9)',
-    border: 'rgba(255, 0, 60, 0.25)',
-    borderActive: 'rgba(255, 0, 60, 0.65)',
-    text: '#fff5f5',
-    gray: '#a68f94'
+    dark: '#22080a',
+    background: '#0f0809', // Deep dark red charcoal
+    panel: 'rgba(255, 255, 255, 0.06)',
+    border: 'rgba(255, 255, 255, 0.12)',
+    borderActive: 'rgba(255, 0, 60, 0.5)',
+    text: '#ffffff',
+    gray: '#c0b8b9'
   },
   blue: {
     primary: '#00bfff',
-    primaryGlow: 'rgba(0, 191, 255, 0.4)',
+    primaryGlow: 'rgba(0, 191, 255, 0.35)',
     dim: '#0090c2',
-    dark: '#022b3a',
-    background: '#030506',
-    panel: 'rgba(8, 12, 14, 0.9)',
-    border: 'rgba(0, 191, 255, 0.25)',
-    borderActive: 'rgba(0, 191, 255, 0.65)',
-    text: '#f5faff',
-    gray: '#8fa0a6'
+    dark: '#081724',
+    background: '#080a12', // Deep navy charcoal
+    panel: 'rgba(255, 255, 255, 0.06)',
+    border: 'rgba(255, 255, 255, 0.12)',
+    borderActive: 'rgba(0, 191, 255, 0.5)',
+    text: '#ffffff',
+    gray: '#b0bccc'
   },
   gold: {
-    primary: '#ffb700',
-    primaryGlow: 'rgba(255, 183, 0, 0.4)',
+    primary: '#ffaa00',
+    primaryGlow: 'rgba(255, 170, 0, 0.35)',
     dim: '#c28b00',
-    dark: '#3b2a02',
-    background: '#060503',
-    panel: 'rgba(14, 12, 8, 0.9)',
-    border: 'rgba(255, 183, 0, 0.25)',
-    borderActive: 'rgba(255, 183, 0, 0.65)',
-    text: '#fffff5',
-    gray: '#a69e8f'
+    dark: '#221808',
+    background: '#110f08', // Deep amber charcoal
+    panel: 'rgba(255, 255, 255, 0.06)',
+    border: 'rgba(255, 255, 255, 0.12)',
+    borderActive: 'rgba(255, 170, 0, 0.5)',
+    text: '#ffffff',
+    gray: '#c0bca8'
   }
 };
 
 export default function App() {
   // Navigation
-  const [activeTab, setActiveTab] = useState<TabMode>('library');
+  const [activeTab, setActiveTab] = useState<TabMode>('home');
+  const [librarySubTab, setLibrarySubTab] = useState<'local' | 'pc' | 'playlists'>('local');
+
+  // Modal for Playlist selection
+  const [isPlaylistModalVisible, setIsPlaylistModalVisible] = useState<boolean>(false);
+  const [songToAddToPlaylist, setSongToAddToPlaylist] = useState<Song | null>(null);
 
   // Persistence Preferences State
   const [theme, setTheme] = useState<ThemeMode>('green');
@@ -370,6 +376,70 @@ export default function App() {
     }
   };
 
+  const toggleLikeSong = async (song: Song) => {
+    try {
+      const currentlyLiked = song.liked || false;
+      const nextLiked = !currentlyLiked;
+
+      // 1. Update in songs list
+      setSongs(prev => prev.map(s => s.id === song.id ? { ...s, liked: nextLiked } : s));
+      
+      // 2. Update in local songs list
+      setLocalSongs(prev => prev.map(s => s.id === song.id ? { ...s, liked: nextLiked } : s));
+
+      // 3. Update active currentTrack
+      if (currentTrack && currentTrack.id === song.id) {
+        setCurrentTrack(prev => prev ? { ...prev, liked: nextLiked } : null);
+      }
+
+      // Update in AsyncStorage local cache
+      const updatedLocalSongs = localSongs.map(s => s.id === song.id ? { ...s, liked: nextLiked } : s);
+      await AsyncStorage.setItem('omniplayer_local_songs', JSON.stringify(updatedLocalSongs));
+
+      // Sincronizar con el Hono del PC si estamos online
+      if (!offlineMode) {
+        await fetch(`${API_BASE}/songs/like`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ song, liked: nextLiked })
+        });
+        fetchPcLibrary();
+      }
+      
+      addLog(`[LIKE] ${nextLiked ? 'Agregado a' : 'Eliminado de'} favoritos: ${song.title}`);
+    } catch (e: any) {
+      console.warn('Error toggling like:', e);
+    }
+  };
+
+  const handleAddSongToPlaylist = async (playlistId: string, song: Song) => {
+    try {
+      if (offlineMode) {
+        Alert.alert('Modo offline', 'No puedes agregar canciones a playlists del servidor en modo offline.');
+        return;
+      }
+      
+      const response = await fetch(`${API_BASE}/playlists/${playlistId}/songs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ song })
+      });
+      
+      if (response.ok) {
+        addLog(`[PLAYLIST] Pista "${song.title}" agregada a playlist con éxito.`);
+        Alert.alert('Éxito', 'Canción agregada a la playlist.');
+        // Refresh library from server
+        fetchPcLibrary();
+        setIsPlaylistModalVisible(false);
+      } else {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to add');
+      }
+    } catch (e: any) {
+      Alert.alert('Error', `Fallo al agregar a la playlist: ${e.message}`);
+    }
+  };
+
   const addLog = (log: string) => {
     setTerminalLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${log}`]);
   };
@@ -486,7 +556,6 @@ export default function App() {
         await soundRef.current.unloadAsync();
       }
 
-      // Check if we play from local storage or stream it from the PC
       let trackUri = '';
       const localTrack = localSongs.find(s => s.id === song.id);
       
@@ -500,14 +569,20 @@ export default function App() {
           return;
         }
 
-        // Get Stream URL via PC Hono Proxy
-        const response = await fetch(`${API_BASE}/stream?url=${encodeURIComponent(song.url)}`);
-        const data = await response.json();
-        if (response.ok && data.success && data.stream_url) {
-          trackUri = data.stream_url;
-          addLog(`[PLAY] Transmitiendo desde YouTube: ${song.title}`);
+        if (song.isDownloaded && song.filename) {
+          // Stream directly from PC Hono static route
+          trackUri = `${API_BASE.replace('/api', '')}/songs/${encodeURIComponent(song.filename)}`;
+          addLog(`[PLAY] Transmitiendo archivo desde PC: ${song.title}`);
         } else {
-          throw new Error(data.details || 'Fallo de extracción');
+          // Get Stream URL via PC Hono Proxy
+          const response = await fetch(`${API_BASE}/stream?url=${encodeURIComponent(song.url)}`);
+          const data = await response.json();
+          if (response.ok && data.success && data.stream_url) {
+            trackUri = data.stream_url;
+            addLog(`[PLAY] Transmitiendo desde YouTube: ${song.title}`);
+          } else {
+            throw new Error(data.details || 'Fallo de extracción');
+          }
         }
       }
 
@@ -634,7 +709,7 @@ export default function App() {
 
   return (
     <View style={[styles.root, { backgroundColor: activeColors.background }]}>
-      <StatusBar style={theme === 'green' ? 'light' : 'auto'} />
+      <StatusBar style="light" />
       
       {/* Hologram scanline HUD overlay */}
       <View style={styles.hologramScanline} pointerEvents="none" />
@@ -642,9 +717,7 @@ export default function App() {
       {/* HEADER HUD BAR */}
       <View style={[styles.headerHud, { borderBottomColor: activeColors.border }]}>
         <View style={styles.headerLeft}>
-          <TouchableOpacity onPress={toggleTheme} style={[styles.skinBadge, { borderColor: activeColors.borderActive }]}>
-            <Text style={[styles.skinText, { color: activeColors.primary }]}>SKIN: {theme.toUpperCase()}</Text>
-          </TouchableOpacity>
+          <Text style={[styles.headerTitleText, { color: '#ffffff' }]}>OMNIPLAYER HOLOGRAPH</Text>
         </View>
         
         <View style={styles.headerRight}>
@@ -662,81 +735,109 @@ export default function App() {
 
       {/* CORE DISPLAY (CENTER VIEW) */}
       <View style={styles.displayArea}>
-        
-        {/* OMNITRIX DIAL GRAPHIC CONTAINER */}
-        <View style={styles.omnitrixContainer}>
-          <Animated.View 
-            style={[
-              styles.omnitrixDial, 
-              { 
-                borderColor: activeColors.primary, 
-                shadowColor: activeColors.primary,
-                transform: [{
-                  rotate: rotateAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: ['0deg', '360deg']
-                  })
-                }]
-              }
-            ]}
-          >
-            {/* Thematic Omnitrix Symbol design layout */}
-            <View style={[styles.dialCoreWedgeLeft, { borderRightColor: activeColors.primary, borderBottomColor: activeColors.primary }]} />
-            <View style={[styles.dialCoreWedgeRight, { borderLeftColor: activeColors.primary, borderTopColor: activeColors.primary }]} />
-            <View style={[styles.dialCoreHourglass, { backgroundColor: isPlaying ? activeColors.primaryGlow : 'rgba(0,0,0,0.6)', borderColor: activeColors.primary }]} />
-          </Animated.View>
-        </View>
-
-        {/* SCREEN TABS BAR */}
-        <View style={[styles.tabsBar, { borderBottomColor: activeColors.border }]}>
-          <TouchableOpacity onPress={() => setActiveTab('library')} style={styles.tabButton}>
-            <Text style={[styles.tabText, activeTab === 'library' && { color: activeColors.primary, textShadowColor: activeColors.primaryGlow, textShadowRadius: 8 }]}>BIBLIOTECA</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setActiveTab('search')} style={styles.tabButton}>
-            <Text style={[styles.tabText, activeTab === 'search' && { color: activeColors.primary, textShadowColor: activeColors.primaryGlow, textShadowRadius: 8 }]}>BUSCAR</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setActiveTab('playlists')} style={styles.tabButton}>
-            <Text style={[styles.tabText, activeTab === 'playlists' && { color: activeColors.primary, textShadowColor: activeColors.primaryGlow, textShadowRadius: 8 }]}>PLAYLISTS</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setActiveTab('ssh_settings')} style={styles.tabButton}>
-            <Text style={[styles.tabText, activeTab === 'ssh_settings' && { color: activeColors.primary, textShadowColor: activeColors.primaryGlow, textShadowRadius: 8 }]}>SSH/PC</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* SCREEN PANEL CONTENT */}
         <View style={styles.panelContainer}>
           
-          {/* TAB 1: LIBRARY PANEL */}
-          {activeTab === 'library' && (
-            <ScrollView style={styles.tabScroll}>
-              <Text style={[styles.panelSubtitle, { color: activeColors.primary }]}>BIBLIOTECA LOCAL DISPOSITIVO ({localSongs.length})</Text>
-              
-              {localSongs.map(song => (
-                <View key={song.id} style={[styles.songRow, { backgroundColor: activeColors.panel, borderColor: activeColors.border }]}>
-                  <HardDrive size={18} color={activeColors.primary} />
-                  <View style={styles.songRowDetails}>
-                    <Text numberOfLines={1} style={styles.songRowTitle}>{song.title}</Text>
-                    <Text numberOfLines={1} style={[styles.songRowArtist, { color: activeColors.gray }]}>{song.artist}</Text>
-                  </View>
-                  <View style={styles.rowActions}>
-                    <TouchableOpacity onPress={() => handlePlaySong(song)} style={styles.actionBtn}>
-                      <Play size={16} color={activeColors.primary} fill={activeColors.primary} />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => handleDeleteLocalSong(song.id)} style={styles.actionBtn}>
-                      <Trash2 size={16} color="#ff003c" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ))}
+          {/* TAB 1: HOME PANEL */}
+          {activeTab === 'home' && (
+            <ScrollView style={styles.tabScroll} showsVerticalScrollIndicator={false}>
+              <View style={[styles.glassCard, { backgroundColor: activeColors.panel, borderColor: activeColors.border }]}>
+                <Text style={[styles.glassCardTitle, { color: activeColors.primary }]}>SISTEMA INICIADO</Text>
+                <Text style={styles.glassCardText}>Bienvenido al reproductor holográfico Omnitrix. Controla tu música local y remota con estética Y2K.</Text>
+              </View>
 
-              {!offlineMode && (
-                <>
-                  <Text style={[styles.panelSubtitle, { color: activeColors.primary, marginTop: 16 }]}>CANCTONES EN LA PC ({songs.length})</Text>
-                  {songs.map(song => {
-                    const isDownloaded = localSongs.some(ls => ls.id === song.id);
-                    return (
-                      <View key={song.id} style={[styles.songRow, { backgroundColor: activeColors.panel, borderColor: activeColors.border, opacity: isDownloaded ? 0.75 : 1 }]}>
-                        {isDownloaded ? <HardDrive size={18} color={activeColors.primary} /> : <Wifi size={18} color={activeColors.gray} />}
+              {/* Stats Grid */}
+              <View style={styles.statsGrid}>
+                <View style={[styles.statsCard, { backgroundColor: activeColors.panel, borderColor: activeColors.border }]}>
+                  <HardDrive size={18} color="#ffffff" />
+                  <Text style={styles.statsNum}>{localSongs.length}</Text>
+                  <Text style={[styles.statsLabel, { color: activeColors.gray }]}>En Móvil</Text>
+                </View>
+
+                <View style={[styles.statsCard, { backgroundColor: activeColors.panel, borderColor: activeColors.border }]}>
+                  <Wifi size={18} color="#ffffff" />
+                  <Text style={styles.statsNum}>{offlineMode ? 'N/A' : songs.length}</Text>
+                  <Text style={[styles.statsLabel, { color: activeColors.gray }]}>En PC</Text>
+                </View>
+
+                <View style={[styles.statsCard, { backgroundColor: activeColors.panel, borderColor: activeColors.border }]}>
+                  <ListPlus size={18} color="#ffffff" />
+                  <Text style={styles.statsNum}>{offlineMode ? 0 : playlists.length}</Text>
+                  <Text style={[styles.statsLabel, { color: activeColors.gray }]}>Playlists</Text>
+                </View>
+              </View>
+
+              {/* Favorites / Liked Section */}
+              <Text style={[styles.panelSubtitle, { color: activeColors.primary, marginTop: 12 }]}>MIS FAVORITOS</Text>
+              
+              {(() => {
+                const likedLocal = localSongs.filter(s => s.liked);
+                const likedRemote = songs.filter(s => s.liked && !localSongs.some(ls => ls.id === s.id));
+                const allLiked = [...likedLocal, ...likedRemote];
+
+                if (allLiked.length === 0) {
+                  return (
+                    <View style={[styles.emptyStateContainer, { backgroundColor: activeColors.panel, borderColor: activeColors.border }]}>
+                      <Heart size={24} color={activeColors.gray} />
+                      <Text style={styles.emptyStateText}>No tienes canciones favoritas aún. Toca el icono de corazón en el reproductor.</Text>
+                    </View>
+                  );
+                }
+
+                return allLiked.map(song => {
+                  const isLocal = localSongs.some(ls => ls.id === song.id);
+                  return (
+                    <TouchableOpacity 
+                      key={song.id} 
+                      onPress={() => handlePlaySong(song)}
+                      style={[styles.songRow, { backgroundColor: activeColors.panel, borderColor: activeColors.border }]}
+                    >
+                      {isLocal ? <HardDrive size={16} color="#ffffff" /> : <Wifi size={16} color={activeColors.gray} />}
+                      <View style={styles.songRowDetails}>
+                        <Text numberOfLines={1} style={styles.songRowTitle}>{song.title}</Text>
+                        <Text numberOfLines={1} style={[styles.songRowArtist, { color: activeColors.gray }]}>{song.artist}</Text>
+                      </View>
+                      <TouchableOpacity onPress={() => toggleLikeSong(song)} style={styles.actionBtn}>
+                        <Heart size={16} color={activeColors.primary} fill={activeColors.primary} />
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  );
+                });
+              })()}
+            </ScrollView>
+          )}
+
+          {/* TAB 2: LIBRARY PANEL (UNIFIED WITH SUB-TABS) */}
+          {activeTab === 'library' && (
+            <View style={{ flex: 1 }}>
+              {/* Sub tabs selector */}
+              <View style={[styles.subTabsBar, { borderBottomColor: activeColors.border }]}>
+                <TouchableOpacity 
+                  onPress={() => setLibrarySubTab('local')} 
+                  style={[styles.subTabButton, librarySubTab === 'local' && { borderBottomColor: activeColors.primary, borderBottomWidth: 2 }]}
+                >
+                  <Text style={[styles.subTabText, { color: librarySubTab === 'local' ? activeColors.primary : '#ffffff' }]}>EN MÓVIL</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  onPress={() => setLibrarySubTab('pc')} 
+                  style={[styles.subTabButton, librarySubTab === 'pc' && { borderBottomColor: activeColors.primary, borderBottomWidth: 2 }]}
+                >
+                  <Text style={[styles.subTabText, { color: librarySubTab === 'pc' ? activeColors.primary : '#ffffff' }]}>EN PC</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  onPress={() => setLibrarySubTab('playlists')} 
+                  style={[styles.subTabButton, librarySubTab === 'playlists' && { borderBottomColor: activeColors.primary, borderBottomWidth: 2 }]}
+                >
+                  <Text style={[styles.subTabText, { color: librarySubTab === 'playlists' ? activeColors.primary : '#ffffff' }]}>PLAYLISTS</Text>
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.tabScroll}>
+                {librarySubTab === 'local' && (
+                  <>
+                    <Text style={[styles.panelSubtitle, { color: activeColors.primary, marginTop: 4 }]}>BIBLIOTECA LOCAL DISPOSITIVO ({localSongs.length})</Text>
+                    {localSongs.map(song => (
+                      <View key={song.id} style={[styles.songRow, { backgroundColor: activeColors.panel, borderColor: activeColors.border }]}>
+                        <HardDrive size={18} color="#ffffff" />
                         <View style={styles.songRowDetails}>
                           <Text numberOfLines={1} style={styles.songRowTitle}>{song.title}</Text>
                           <Text numberOfLines={1} style={[styles.songRowArtist, { color: activeColors.gray }]}>{song.artist}</Text>
@@ -745,29 +846,115 @@ export default function App() {
                           <TouchableOpacity onPress={() => handlePlaySong(song)} style={styles.actionBtn}>
                             <Play size={16} color={activeColors.primary} fill={activeColors.primary} />
                           </TouchableOpacity>
-                          {!isDownloaded && (
-                            <TouchableOpacity 
-                              onPress={() => handleDownloadToMobile(song)} 
-                              style={styles.actionBtn}
-                              disabled={downloadingSongId === song.id}
-                            >
-                              {downloadingSongId === song.id ? (
-                                <ActivityIndicator size="small" color={activeColors.primary} />
-                              ) : (
-                                <Download size={16} color={activeColors.primary} />
-                              )}
-                            </TouchableOpacity>
-                          )}
+                          <TouchableOpacity onPress={() => handleDeleteLocalSong(song.id)} style={styles.actionBtn}>
+                            <Trash2 size={16} color="#ff003c" />
+                          </TouchableOpacity>
                         </View>
                       </View>
-                    );
-                  })}
-                </>
-              )}
-            </ScrollView>
+                    ))}
+                    {localSongs.length === 0 && (
+                      <Text style={styles.noPlaylistsText}>No hay música descargada localmente.</Text>
+                    )}
+                  </>
+                )}
+
+                {librarySubTab === 'pc' && (
+                  <>
+                    <Text style={[styles.panelSubtitle, { color: activeColors.primary, marginTop: 4 }]}>CANCIONES EN LA PC ({offlineMode ? 0 : songs.length})</Text>
+                    {offlineMode ? (
+                      <Text style={styles.noPlaylistsText}>El modo offline está activo. Desactívalo para ver canciones en la PC.</Text>
+                    ) : (
+                      songs.map(song => {
+                        const isDownloaded = localSongs.some(ls => ls.id === song.id);
+                        return (
+                          <View key={song.id} style={[styles.songRow, { backgroundColor: activeColors.panel, borderColor: activeColors.border, opacity: isDownloaded ? 0.75 : 1 }]}>
+                            {isDownloaded ? <HardDrive size={18} color="#ffffff" /> : <Wifi size={18} color={activeColors.gray} />}
+                            <View style={styles.songRowDetails}>
+                              <Text numberOfLines={1} style={styles.songRowTitle}>{song.title}</Text>
+                              <Text numberOfLines={1} style={[styles.songRowArtist, { color: activeColors.gray }]}>{song.artist}</Text>
+                            </View>
+                            <View style={styles.rowActions}>
+                              <TouchableOpacity onPress={() => handlePlaySong(song)} style={styles.actionBtn}>
+                                <Play size={16} color={activeColors.primary} fill={activeColors.primary} />
+                              </TouchableOpacity>
+                              {!isDownloaded && (
+                                <TouchableOpacity 
+                                  onPress={() => handleDownloadToMobile(song)} 
+                                  style={styles.actionBtn}
+                                  disabled={downloadingSongId === song.id}
+                                >
+                                  {downloadingSongId === song.id ? (
+                                    <ActivityIndicator size="small" color={activeColors.primary} />
+                                  ) : (
+                                    <Download size={16} color="#ffffff" />
+                                  )}
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          </View>
+                        );
+                      })
+                    )}
+                    {!offlineMode && songs.length === 0 && (
+                      <Text style={styles.noPlaylistsText}>No se encontraron canciones en el servidor PC.</Text>
+                    )}
+                  </>
+                )}
+
+                {librarySubTab === 'playlists' && (
+                  <>
+                    <Text style={[styles.panelSubtitle, { color: activeColors.primary, marginTop: 4 }]}>PLAYLISTS EN LA PC ({offlineMode ? 0 : playlists.length})</Text>
+                    {offlineMode ? (
+                      <Text style={styles.noPlaylistsText}>Modo offline activo. Las playlists del servidor requieren conexión.</Text>
+                    ) : (
+                      playlists.map(pl => {
+                        const isExpanded = selectedPlaylistId === pl.id;
+                        return (
+                          <View key={pl.id} style={{ marginBottom: 6 }}>
+                            <TouchableOpacity 
+                              onPress={() => setSelectedPlaylistId(isExpanded ? null : pl.id)}
+                              style={[styles.playlistHeaderRow, { backgroundColor: activeColors.panel, borderColor: activeColors.border }]}
+                            >
+                              <View style={{ flex: 1, marginRight: 8 }}>
+                                <Text style={styles.playlistName}>{pl.name}</Text>
+                                <Text style={[styles.playlistDesc, { color: activeColors.gray }]}>{pl.description || 'Sin descripción.'}</Text>
+                              </View>
+                              <Text style={[styles.playlistCount, { color: activeColors.primary }]}>{pl.songIds.length} temas</Text>
+                            </TouchableOpacity>
+
+                            {isExpanded && (
+                              <View style={[styles.playlistSongsList, { borderColor: activeColors.border }]}>
+                                {pl.songIds.map(songId => {
+                                  const plSong = songs.find(s => s.id === songId);
+                                  if (!plSong) return null;
+                                  return (
+                                    <View key={songId} style={[styles.playlistSongRow, { borderBottomColor: 'rgba(255,255,255,0.06)' }]}>
+                                      <Text numberOfLines={1} style={styles.playlistSongTitle}>{plSong.title}</Text>
+                                      <TouchableOpacity onPress={() => handlePlaySong(plSong)} style={styles.playlistSongPlayBtn}>
+                                        <Play size={12} color={activeColors.primary} fill={activeColors.primary} />
+                                      </TouchableOpacity>
+                                    </View>
+                                  );
+                                })}
+                                {pl.songIds.length === 0 && (
+                                  <Text style={styles.emptyPlaylistText}>Playlist vacía.</Text>
+                                )}
+                              </View>
+                            )}
+                          </View>
+                        );
+                      })
+                    )}
+                    {!offlineMode && playlists.length === 0 && (
+                      <Text style={styles.noPlaylistsText}>No hay playlists registradas en la PC.</Text>
+                    )}
+                  </>
+                )}
+              </ScrollView>
+            </View>
           )}
 
-          {/* TAB 2: SEARCH PANEL */}
+          {/* TAB 3: SEARCH PANEL */}
           {activeTab === 'search' && (
             <View style={styles.searchPanel}>
               <View style={[styles.searchInputWrapper, { borderColor: activeColors.border }]}>
@@ -780,77 +967,81 @@ export default function App() {
                   onSubmitEditing={handleSearch}
                 />
                 <TouchableOpacity onPress={handleSearch} style={styles.searchBtn}>
-                  {isSearching ? <ActivityIndicator size="small" color={activeColors.primary} /> : <Search size={20} color={activeColors.primary} />}
+                  {isSearching ? <ActivityIndicator size="small" color={activeColors.primary} /> : <Search size={20} color="#ffffff" />}
                 </TouchableOpacity>
               </View>
 
               <ScrollView style={styles.tabScroll}>
-                {searchResults.map(song => (
-                  <View key={song.id} style={[styles.songRow, { backgroundColor: activeColors.panel, borderColor: activeColors.border }]}>
-                    <Music size={18} color={activeColors.primary} />
-                    <View style={styles.songRowDetails}>
-                      <Text numberOfLines={1} style={styles.songRowTitle}>{song.title}</Text>
-                      <Text numberOfLines={1} style={[styles.songRowArtist, { color: activeColors.gray }]}>{song.artist}</Text>
-                    </View>
-                    <View style={styles.rowActions}>
-                      <TouchableOpacity onPress={() => handlePlaySong(song)} style={styles.actionBtn}>
-                        <Play size={16} color={activeColors.primary} fill={activeColors.primary} />
-                      </TouchableOpacity>
-                      <TouchableOpacity 
-                        onPress={() => handleDownloadToMobile(song)} 
-                        style={styles.actionBtn}
-                        disabled={downloadingSongId === song.id}
-                      >
-                        {downloadingSongId === song.id ? (
-                          <ActivityIndicator size="small" color={activeColors.primary} />
-                        ) : (
-                          <Download size={16} color={activeColors.primary} />
+                {searchResults.map(song => {
+                  const isDownloaded = localSongs.some(ls => ls.id === song.id);
+                  return (
+                    <View key={song.id} style={[styles.songRow, { backgroundColor: activeColors.panel, borderColor: activeColors.border }]}>
+                      <Music size={18} color="#ffffff" />
+                      <View style={styles.songRowDetails}>
+                        <Text numberOfLines={1} style={styles.songRowTitle}>{song.title}</Text>
+                        <Text numberOfLines={1} style={[styles.songRowArtist, { color: activeColors.gray }]}>{song.artist}</Text>
+                      </View>
+                      <View style={styles.rowActions}>
+                        <TouchableOpacity onPress={() => handlePlaySong(song)} style={styles.actionBtn}>
+                          <Play size={16} color={activeColors.primary} fill={activeColors.primary} />
+                        </TouchableOpacity>
+                        {!isDownloaded && (
+                          <TouchableOpacity 
+                            onPress={() => handleDownloadToMobile(song)} 
+                            style={styles.actionBtn}
+                            disabled={downloadingSongId === song.id}
+                          >
+                            {downloadingSongId === song.id ? (
+                              <ActivityIndicator size="small" color={activeColors.primary} />
+                            ) : (
+                              <Download size={16} color="#ffffff" />
+                            )}
+                          </TouchableOpacity>
                         )}
-                      </TouchableOpacity>
+                      </View>
                     </View>
-                  </View>
-                ))}
+                  );
+                })}
+                {searchResults.length === 0 && !isSearching && (
+                  <Text style={styles.noPlaylistsText}>Busca canciones para agregarlas o reproducirlas en streaming.</Text>
+                )}
               </ScrollView>
             </View>
           )}
 
-          {/* TAB 3: PLAYLISTS PANEL */}
-          {activeTab === 'playlists' && (
-            <ScrollView style={styles.tabScroll}>
-              <Text style={[styles.panelSubtitle, { color: activeColors.primary }]}>PLAYLISTS EN LA PC</Text>
+          {/* TAB 4: SETTINGS PANEL */}
+          {activeTab === 'settings' && (
+            <ScrollView style={styles.tabScroll} showsVerticalScrollIndicator={false}>
               
-              {playlists.map(pl => (
-                <TouchableOpacity 
-                  key={pl.id} 
-                  onPress={() => setSelectedPlaylistId(selectedPlaylistId === pl.id ? null : pl.id)}
-                  style={[styles.playlistHeaderRow, { backgroundColor: activeColors.panel, borderColor: activeColors.border }]}
-                >
-                  <View>
-                    <Text style={styles.playlistName}>{pl.name}</Text>
-                    <Text style={[styles.playlistDesc, { color: activeColors.gray }]}>{pl.description || 'Sin descripción holográfica.'}</Text>
-                  </View>
-                  <Text style={[styles.playlistCount, { color: activeColors.primary }]}>{pl.songIds.length} temas</Text>
-                </TouchableOpacity>
-              ))}
-
-              {playlists.length === 0 && (
-                <Text style={styles.noPlaylistsText}>Conéctate a la PC para sincronizar y ver tus playlists.</Text>
-              )}
-            </ScrollView>
-          )}
-
-          {/* TAB 4: SSH / SERVER SETTINGS PANEL */}
-          {activeTab === 'ssh_settings' && (
-            <View style={styles.sshLayout}>
-              
-              {/* Form Input parameters */}
+              {/* Skins/Theme selector (moved here) */}
               <View style={[styles.sshFormPanel, { backgroundColor: activeColors.panel, borderColor: activeColors.border }]}>
-                <Text style={[styles.sshFormTitle, { color: activeColors.primary }]}>CONEXIÓN SSH / HONO SERVIDOR</Text>
+                <Text style={[styles.sshFormTitle, { color: activeColors.primary }]}>TEMA DEL OMNITRIX (SKIN)</Text>
+                <View style={styles.themeSelectorContainer}>
+                  {(['green', 'red', 'blue', 'gold'] as ThemeMode[]).map(skin => (
+                    <TouchableOpacity 
+                      key={skin} 
+                      onPress={() => setTheme(skin)}
+                      style={[
+                        styles.themeOptionBtn, 
+                        { borderColor: theme === skin ? THEMES[skin].primary : 'rgba(255, 255, 255, 0.15)' }
+                      ]}
+                    >
+                      <Text style={[styles.themeOptionText, { color: theme === skin ? THEMES[skin].primary : '#ffffff' }]}>
+                        {skin.toUpperCase()}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* SSH connection Form */}
+              <View style={[styles.sshFormPanel, { backgroundColor: activeColors.panel, borderColor: activeColors.border }]}>
+                <Text style={[styles.sshFormTitle, { color: activeColors.primary }]}>CONFIGURACIÓN SSH DEL SERVIDOR PC</Text>
                 
                 <TextInput 
                   value={serverIp}
                   onChangeText={setServerIp}
-                  placeholder="IP Servidor PC (e.g. 192.168.1.50)"
+                  placeholder="IP Servidor PC (e.g. 192.168.1.76)"
                   placeholderTextColor={activeColors.gray}
                   style={[styles.sshInput, { borderColor: activeColors.border, color: activeColors.text }]}
                 />
@@ -859,7 +1050,7 @@ export default function App() {
                   <TextInput 
                     value={sshUser}
                     onChangeText={setSshUser}
-                    placeholder="SSH User"
+                    placeholder="Usuario SSH"
                     placeholderTextColor={activeColors.gray}
                     style={[styles.sshInput, { flex: 1, marginRight: 8, borderColor: activeColors.border, color: activeColors.text }]}
                   />
@@ -877,7 +1068,7 @@ export default function App() {
                   value={sshPassword}
                   onChangeText={setSshPassword}
                   secureTextEntry
-                  placeholder="SSH Password"
+                  placeholder="Contraseña SSH"
                   placeholderTextColor={activeColors.gray}
                   style={[styles.sshInput, { borderColor: activeColors.border, color: activeColors.text }]}
                 />
@@ -891,17 +1082,18 @@ export default function App() {
                     <ActivityIndicator size="small" color={activeColors.primary} />
                   ) : (
                     <Text style={[styles.sshConnectText, { color: activeColors.primary }]}>
-                      {isSshConnected ? 'DESCONECTAR SSH (ACTIVO)' : 'ENLAZAR SSH CON PC'}
+                      {isSshConnected ? 'DESCONECTAR SSH' : 'ENLAZAR SSH CON PC'}
                     </Text>
                   )}
                 </TouchableOpacity>
               </View>
 
-              {/* SSH Retro scanline CLI terminal prompt */}
-              <View style={styles.terminalContainer}>
+              {/* SSH Retro terminal prompt */}
+              <View style={[styles.terminalContainer, { borderColor: activeColors.primary }]}>
                 <ScrollView 
                   style={styles.terminalLogs}
                   ref={ref => { if (ref) ref.scrollToEnd({ animated: true }); }}
+                  nestedScrollEnabled={true}
                 >
                   {terminalLogs.map((log, index) => (
                     <Text key={index} style={[styles.terminalText, { color: activeColors.primary }]}>{log}</Text>
@@ -912,30 +1104,30 @@ export default function App() {
                   <TextInput 
                     value={terminalCommand}
                     onChangeText={setTerminalCommand}
-                    placeholder="Ej: ls, pm2 list, hostname..."
-                    placeholderTextColor="rgba(0,255,102,0.3)"
+                    placeholder="Comando (ls, clear, uptime...)"
+                    placeholderTextColor="rgba(255,255,255,0.2)"
                     onSubmitEditing={handleExecuteSshCommand}
                     style={[styles.terminalInput, { color: activeColors.primary }]}
                   />
                 </View>
               </View>
 
-            </View>
+            </ScrollView>
           )}
 
         </View>
       </View>
 
-      {/* FOOTER MEDIA PLAYER BAR */}
+      {/* FOOTER MEDIA PLAYER BAR (TALLER, VOLUMEN REMOVED) */}
       <View style={[styles.playerBar, { backgroundColor: activeColors.panel, borderTopColor: activeColors.border }]}>
         
         {/* Progress Bar (Dynamic fill on touch) */}
         <View style={styles.progressContainer}>
-          <Text style={[styles.timeText, { color: activeColors.gray }]}>{formatTime(currentTime)}</Text>
+          <Text style={[styles.timeText, { color: '#ffffff' }]}>{formatTime(currentTime)}</Text>
           <TouchableOpacity 
             activeOpacity={1} 
             onPress={handleSeekTouch} 
-            style={[styles.progressRail, { backgroundColor: '#111' }]}
+            style={[styles.progressRail, { backgroundColor: 'rgba(255, 255, 255, 0.15)' }]}
           >
             <View 
               style={[
@@ -947,35 +1139,42 @@ export default function App() {
               ]} 
             />
           </TouchableOpacity>
-          <Text style={[styles.timeText, { color: activeColors.gray }]}>{formatTime(duration)}</Text>
+          <Text style={[styles.timeText, { color: '#ffffff' }]}>{formatTime(duration)}</Text>
         </View>
 
         {/* Media Controls details row */}
         <View style={styles.controlsRow}>
           
-          {/* Song Info */}
-          <View style={styles.songMetadata}>
-            <Text numberOfLines={1} style={styles.playerSongTitle}>
-              {currentTrack ? currentTrack.title : 'OMNIPLAYER HOLOGRAPH'}
-            </Text>
-            <Text numberOfLines={1} style={[styles.playerSongArtist, { color: activeColors.gray }]}>
-              {currentTrack ? currentTrack.artist : 'Selecciona una pista'}
-            </Text>
-          </View>
-
-          {/* Core Player buttons */}
-          <View style={styles.playbackButtons}>
-            <TouchableOpacity onPress={() => setIsShuffle(!isShuffle)} style={styles.btnIcon}>
-              <Shuffle size={18} color={isShuffle ? activeColors.primary : activeColors.gray} />
+          {/* Grouped controls: Like, AddToPlaylist, Play */}
+          <View style={styles.playbackButtonsLeft}>
+            <TouchableOpacity 
+              onPress={() => currentTrack && toggleLikeSong(currentTrack)} 
+              style={styles.playerActionBtn}
+              disabled={!currentTrack}
+            >
+              <Heart 
+                size={20} 
+                color={currentTrack?.liked ? activeColors.primary : '#ffffff'} 
+                fill={currentTrack?.liked ? activeColors.primary : 'transparent'} 
+              />
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={handlePrevTrack} style={styles.btnIcon}>
-              <SkipBack size={20} color={activeColors.primary} fill={activeColors.primary} />
+            <TouchableOpacity 
+              onPress={() => {
+                if (currentTrack) {
+                  setSongToAddToPlaylist(currentTrack);
+                  setIsPlaylistModalVisible(true);
+                }
+              }} 
+              style={styles.playerActionBtn}
+              disabled={!currentTrack}
+            >
+              <ListPlus size={20} color="#ffffff" />
             </TouchableOpacity>
 
             <TouchableOpacity 
               onPress={togglePlayPause} 
-              style={[styles.btnPlay, { backgroundColor: activeColors.primary }]}
+              style={[styles.btnPlayModern, { backgroundColor: activeColors.primary }]}
             >
               {isBuffering ? (
                 <ActivityIndicator size="small" color="#000" />
@@ -985,46 +1184,77 @@ export default function App() {
                 <Play size={18} color="#000" fill="#000" style={{ marginLeft: 2 }} />
               )}
             </TouchableOpacity>
-
-            <TouchableOpacity onPress={handleNextTrack} style={styles.btnIcon}>
-              <SkipForward size={20} color={activeColors.primary} fill={activeColors.primary} />
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={() => setIsRepeat(!isRepeat)} style={styles.btnIcon}>
-              <Repeat size={18} color={isRepeat ? activeColors.primary : activeColors.gray} />
-            </TouchableOpacity>
           </View>
 
-          {/* Volume Control */}
-          <View style={styles.volumeWidget}>
-            <TouchableOpacity onPress={() => setIsMuted(!isMuted)}>
-              {isMuted || volume === 0 ? (
-                <VolumeX size={16} color="#ff003c" />
-              ) : (
-                <Volume2 size={16} color={activeColors.primary} />
-              )}
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              activeOpacity={1} 
-              onPress={handleVolumeTouch}
-              style={styles.volumeRail}
-            >
-              <View 
-                style={[
-                  styles.volumeFill, 
-                  { 
-                    backgroundColor: getVolumeFillColor(),
-                    width: `${volume * 100}%` 
-                  }
-                ]} 
-              />
-            </TouchableOpacity>
+          {/* Metadata info */}
+          <View style={styles.songMetadataRight}>
+            <Text numberOfLines={1} style={styles.playerSongTitle}>
+              {currentTrack ? currentTrack.title : 'OMNIPLAYER HOLOGRAPH'}
+            </Text>
+            <Text numberOfLines={1} style={[styles.playerSongArtist, { color: '#cccccc' }]}>
+              {currentTrack ? currentTrack.artist : 'Selecciona una pista'}
+            </Text>
           </View>
 
         </View>
-
       </View>
+
+      {/* BOTTOM NAVIGATION BAR */}
+      <View style={[styles.bottomNavBar, { backgroundColor: activeColors.panel, borderTopColor: activeColors.border }]}>
+        <TouchableOpacity onPress={() => setActiveTab('home')} style={styles.navButton}>
+          <Home size={18} color={activeTab === 'home' ? activeColors.primary : '#ffffff'} />
+          <Text style={[styles.navText, { color: activeTab === 'home' ? activeColors.primary : '#cccccc' }]}>Inicio</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => setActiveTab('library')} style={styles.navButton}>
+          <Music size={18} color={activeTab === 'library' ? activeColors.primary : '#ffffff'} />
+          <Text style={[styles.navText, { color: activeTab === 'library' ? activeColors.primary : '#cccccc' }]}>Biblioteca</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => setActiveTab('search')} style={styles.navButton}>
+          <Search size={18} color={activeTab === 'search' ? activeColors.primary : '#ffffff'} />
+          <Text style={[styles.navText, { color: activeTab === 'search' ? activeColors.primary : '#cccccc' }]}>Buscar</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => setActiveTab('settings')} style={styles.navButton}>
+          <Settings size={18} color={activeTab === 'settings' ? activeColors.primary : '#ffffff'} />
+          <Text style={[styles.navText, { color: activeTab === 'settings' ? activeColors.primary : '#cccccc' }]}>Ajustes</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* PLAYLIST SELECTION MODAL */}
+      {isPlaylistModalVisible && (
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: activeColors.background === '#080d09' ? '#0c170f' : (activeColors.background === '#0f0809' ? '#180c0d' : (activeColors.background === '#080a12' ? '#0d121f' : '#1a170d')), borderColor: activeColors.primary }]}>
+            <Text style={[styles.modalTitle, { color: activeColors.primary }]}>AÑADIR A PLAYLIST</Text>
+            <Text style={styles.modalSongName} numberOfLines={1}>{songToAddToPlaylist?.title}</Text>
+            
+            <ScrollView style={styles.modalScroll}>
+              {playlists.map(pl => (
+                <TouchableOpacity 
+                  key={pl.id} 
+                  onPress={() => songToAddToPlaylist && handleAddSongToPlaylist(pl.id, songToAddToPlaylist)}
+                  style={[styles.modalPlaylistItem, { borderColor: 'rgba(255, 255, 255, 0.1)' }]}
+                >
+                  <Text style={styles.modalPlaylistName}>{pl.name}</Text>
+                  <Text style={[styles.modalPlaylistCount, { color: activeColors.gray }]}>{pl.songIds.length} canciones</Text>
+                </TouchableOpacity>
+              ))}
+              {playlists.length === 0 && (
+                <Text style={styles.noPlaylistsText}>No hay playlists en la PC. Conéctate para crearlas.</Text>
+              )}
+            </ScrollView>
+
+            <TouchableOpacity 
+              onPress={() => setIsPlaylistModalVisible(false)} 
+              style={[styles.modalCloseBtn, { borderColor: activeColors.primary }]}
+            >
+              <Text style={[styles.modalCloseText, { color: activeColors.primary }]}>CERRAR</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
     </View>
   );
 }
@@ -1315,8 +1545,9 @@ const styles = StyleSheet.create({
   playerBar: {
     borderTopWidth: 1,
     paddingHorizontal: 12,
-    paddingBottom: 12,
+    paddingBottom: 8,
     paddingTop: 8,
+    minHeight: 90,
   },
   progressContainer: {
     flexDirection: 'row',
@@ -1345,53 +1576,263 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    marginTop: 4,
   },
-  songMetadata: {
-    width: '30%',
+  playbackButtonsLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '40%',
+  },
+  btnPlayModern: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  playerActionBtn: {
+    padding: 6,
+    marginRight: 6,
+  },
+  songMetadataRight: {
+    width: '58%',
+    alignItems: 'flex-end',
   },
   playerSongTitle: {
     color: '#fff',
     fontSize: 11,
     fontWeight: 'bold',
+    textAlign: 'right',
   },
   playerSongArtist: {
     fontSize: 9,
     marginTop: 1,
+    textAlign: 'right',
   },
-  playbackButtons: {
+  headerTitleText: {
+    fontSize: 11,
+    fontFamily: 'monospace',
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
+  // Home panel styles
+  glassCard: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  glassCardTitle: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    fontFamily: 'monospace',
+    marginBottom: 4,
+  },
+  glassCardText: {
+    fontSize: 11,
+    color: '#e0e0e0',
+    lineHeight: 15,
+  },
+  statsGrid: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  statsCard: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    alignItems: 'center',
+    marginHorizontal: 3,
+  },
+  statsNum: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#ffffff',
+    marginVertical: 2,
+  },
+  statsLabel: {
+    fontSize: 8,
+    fontFamily: 'monospace',
+  },
+  emptyStateContainer: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    width: '45%',
+    marginTop: 8,
   },
-  btnIcon: {
+  emptyStateText: {
+    fontSize: 10,
+    textAlign: 'center',
+    color: '#b0b0b0',
+    marginTop: 8,
+    lineHeight: 14,
+  },
+  // Sub-tabs for Biblioteca
+  subTabsBar: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    marginBottom: 10,
+  },
+  subTabButton: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  subTabText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    fontFamily: 'monospace',
+  },
+  // Expanded Playlist song list
+  playlistSongsList: {
+    borderWidth: 1,
+    borderTopWidth: 0,
+    borderBottomLeftRadius: 6,
+    borderBottomRightRadius: 6,
     padding: 8,
-    marginHorizontal: 2,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    marginBottom: 8,
   },
-  btnPlay: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+  playlistSongRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+  },
+  playlistSongTitle: {
+    fontSize: 11,
+    color: '#e0e0e0',
+    flex: 1,
+    marginRight: 8,
+  },
+  playlistSongPlayBtn: {
+    padding: 4,
+  },
+  emptyPlaylistText: {
+    fontSize: 10,
+    color: '#666',
+    fontStyle: 'italic',
+    paddingVertical: 4,
+    textAlign: 'center',
+  },
+  // Theme selector in settings
+  themeSelectorContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  themeOptionBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 4,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
-    marginHorizontal: 8,
+    marginHorizontal: 2,
+    backgroundColor: 'rgba(0,0,0,0.3)',
   },
-  volumeWidget: {
+  themeOptionText: {
+    fontSize: 9,
+    fontWeight: 'bold',
+    fontFamily: 'monospace',
+  },
+  // Bottom navigation bar
+  bottomNavBar: {
     flexDirection: 'row',
+    height: 56,
+    borderTopWidth: 1,
+    paddingBottom: 6,
+    paddingTop: 6,
+  },
+  navButton: {
+    flex: 1,
     alignItems: 'center',
-    width: '25%',
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
   },
-  volumeRail: {
-    width: 60,
-    height: 4,
-    backgroundColor: '#111',
-    borderRadius: 2,
-    marginLeft: 6,
-    overflow: 'hidden',
+  navText: {
+    fontSize: 8,
+    marginTop: 3,
+    fontWeight: '600',
+    fontFamily: 'monospace',
   },
-  volumeFill: {
-    height: '100%',
-    borderRadius: 2,
+  // Modal for adding to playlist
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 99999,
+  },
+  modalContent: {
+    width: '80%',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 16,
+    maxHeight: '70%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 20,
+  },
+  modalTitle: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    fontFamily: 'monospace',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  modalSongName: {
+    fontSize: 10,
+    color: '#ffffff',
+    textAlign: 'center',
+    marginBottom: 16,
+    fontWeight: 'bold',
+  },
+  modalScroll: {
+    marginBottom: 16,
+  },
+  modalPlaylistItem: {
+    borderBottomWidth: 1,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  modalPlaylistName: {
+    fontSize: 12,
+    color: '#ffffff',
+    fontWeight: '600',
+  },
+  modalPlaylistCount: {
+    fontSize: 10,
+    fontFamily: 'monospace',
+  },
+  modalCloseBtn: {
+    borderWidth: 1,
+    borderRadius: 4,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  modalCloseText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    fontFamily: 'monospace',
   }
 });
