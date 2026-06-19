@@ -668,6 +668,27 @@ app.put('/api/playlists/:id', async (c) => {
   }
 })
 
+// SSH / Console Command Execution
+app.post('/api/ssh/execute', async (c) => {
+  try {
+    const { command } = await c.req.json()
+    if (!command) {
+      return c.json({ error: 'Command is required' }, 400)
+    }
+
+    const { exec } = require('child_process')
+    const { promisify } = require('util')
+    const execAsync = promisify(exec)
+
+    console.log(`Executing terminal command via API: ${command}`)
+    const { stdout, stderr } = await execAsync(command, { timeout: 15000 })
+    return c.json({ success: true, stdout, stderr })
+  } catch (error: any) {
+    console.error('Command execution error:', error)
+    return c.json({ success: false, stdout: '', stderr: error.message || 'Execution failed' })
+  }
+})
+
 // Start server
 const port = 3000
 serve({
